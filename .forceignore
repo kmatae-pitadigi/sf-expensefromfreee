@@ -21,3 +21,4 @@ package.xml
 **/remoteSiteSettings/**
 **/permissionsets/**
 **/reportTypes/**
+**/settings/**

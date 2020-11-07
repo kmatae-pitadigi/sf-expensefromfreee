@@ -143,20 +143,21 @@
     <allowInChatterGroups>false</allowInChatterGroups>
     <compactLayoutAssignment>SYSTEM</compactLayoutAssignment>
     <deploymentStatus>Deployed</deploymentStatus>
+    <description>freeeの経費データ</description>
     <enableActivities>false</enableActivities>
-    <enableBulkApi>false</enableBulkApi>
+    <enableBulkApi>true</enableBulkApi>
     <enableFeeds>false</enableFeeds>
     <enableHistory>false</enableHistory>
     <enableLicensing>false</enableLicensing>
     <enableReports>false</enableReports>
     <enableSearch>false</enableSearch>
-    <enableSharing>false</enableSharing>
-    <enableStreamingApi>false</enableStreamingApi>
-    <label>Freee経費明細</label>
+    <enableSharing>true</enableSharing>
+    <enableStreamingApi>true</enableStreamingApi>
+    <externalSharingModel>Private</externalSharingModel>
+    <label>経費</label>
     <nameField>
-        <displayFormat>{0}</displayFormat>
-        <label>FreeeExpenseDetail名</label>
-        <type>AutoNumber</type>
+        <label>ID</label>
+        <type>Text</type>
     </nameField>
     <searchLayouts/>
     <sharingModel>ReadWrite</sharingModel>
