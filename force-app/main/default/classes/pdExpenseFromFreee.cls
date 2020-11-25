@@ -8,7 +8,7 @@ public with sharing class pdExpenseFromFreee {
         Integer companyId = getCompany();
 
         // 勘定科目情報を取得する
-        List<AccountInfo> lstAccountInfo = getAccountInfo(companyId);
+        Map<Integer, String> mapAccountInfo = getAccountInfo(companyId);
 
         Date startDate;
         List<Expense__c> lstExpense = new List<Expense__c>();
@@ -17,8 +17,11 @@ public with sharing class pdExpenseFromFreee {
             startDate = Date.today().toStartOfMonth().addMonths(i * (-1));
             Date endDate = startDate.addMonths(1).addDays(-1);
 
-            lstExpense.addAll(getExpense(companyId, lstAccountInfo, startDate, endDate));
-            lstIncome.addAll(getIncome(companyId, lstAccountInfo, startDate, endDate));
+            lstExpense.addAll(getExpense(companyId, mapAccountInfo, startDate, endDate));
+            lstIncome.addAll(getIncome(companyId, mapAccountInfo, startDate, endDate));
+
+            // 振替伝票情報を収入、経費に反映する
+            getManualJournals(companyId, mapAccountInfo, startDate, endDate, lstIncome, lstExpense);
         }
 
         // 明細データを削除する
@@ -87,7 +90,7 @@ public with sharing class pdExpenseFromFreee {
     /**
     * 勘定科目情報を取得する
      */
-    private static List<AccountInfo> getAccountInfo(Integer companyId) {
+    private static Map<Integer, String> getAccountInfo(Integer companyId) {
         // 勘定科目情報を取得する
         Http http = new Http();
         String path = 'callout:Freee/account_items';
@@ -100,29 +103,26 @@ public with sharing class pdExpenseFromFreee {
         HttpResponse res = http.send(req);
 
         // 正常に返って来たらオブジェクトに設定する
-        List<AccountInfo> lstAccoutList = new List<AccountInfo>();
+        Map<Integer, String> mapAccoutList = new Map<Integer, String>();
         if (res.getStatusCode() == 200) {
             Map<String, Object> mapBody = (Map<String, Object>)JSON.deserializeUntyped(res.getBody());
             List<Object> lstBody = (List<Object>)mapBody.get('account_items');
             for(Object item : lstBody) {
                 Map<String, Object> mapItem = (Map<String, Object>)item;
-                AccountInfo ai = new AccountInfo();
-                ai.Id = (Integer)mapItem.get('id');
-                ai.Name = (String)mapItem.get('name');
-                lstAccoutList.add(ai);
+                mapAccoutList.put((Integer)mapItem.get('id'), (String)mapItem.get('name'));
             }
         }
         else {
             throw new OtherException(getApiErrorMessage(res.getBody()));
         }
 
-        return lstAccoutList;
+        return mapAccoutList;
     }
 
     /**
     * 経費明細を取得する
     */
-    private static List<Expense__c> getExpense(Integer companyId, List<AccountInfo> lstAccountInfo, Date startDate, Date endDate) {
+    private static List<Expense__c> getExpense(Integer companyId, Map<Integer, String> mapAccountInfo, Date startDate, Date endDate) {
         List<Expense__c> lstExpense = new List<Expense__c>();
         List<Object> lstDeals = getDeals('expense', companyId, startDate, endDate);
         for(Object deal : lstDeals) {
@@ -140,7 +140,7 @@ public with sharing class pdExpenseFromFreee {
                 // 発生日
                 expense.IssueDate__c = Date.valueOf((String)mapDeal.get('issue_date'));
                 // 勘定科目
-                expense.AccountItem__c = getAccountName(lstAccountInfo, (Integer)mapDetail.get('account_item_id'));
+                expense.AccountItem__c = getAccountName(mapAccountInfo, (Integer)mapDetail.get('account_item_id'));
                 // 金額
                 expense.Amount__c = (Integer)mapDetail.get('amount');
                 // 備考
@@ -160,7 +160,7 @@ public with sharing class pdExpenseFromFreee {
     /**
     * 収入明細を取得する
     */
-    private static List<Income__c> getIncome(Integer companyId, List<AccountInfo> lstAccountInfo, Date startDate, Date endDate) {
+    private static List<Income__c> getIncome(Integer companyId, Map<Integer, String> mapAccountInfo, Date startDate, Date endDate) {
         List<Income__c> lstIncome = new List<Income__c>();
         List<Object> lstDeals = getDeals('income', companyId, startDate, endDate);
         for(Object deal : lstDeals) {
@@ -178,7 +178,7 @@ public with sharing class pdExpenseFromFreee {
                 // 発生日
                 income.IssueDate__c = Date.valueOf((String)mapDeal.get('issue_date'));
                 // 勘定科目
-                income.AccountItem__c = getAccountName(lstAccountInfo, (Integer)mapDetail.get('account_item_id'));
+                income.AccountItem__c = getAccountName(mapAccountInfo, (Integer)mapDetail.get('account_item_id'));
                 // 金額
                 income.Amount__c = (Integer)mapDetail.get('amount');
                 // 備考
@@ -223,18 +223,87 @@ public with sharing class pdExpenseFromFreee {
     }
 
     /**
-    * 勘定科目リストから指定IDの勘定科目名を返す
+     * 振替伝票情報をfreeeから取得する
+     * 取得した振替伝票の貸借を以下のように処理する
+     * 借方: 経費明細として追加する
+     * 貸方: 収入明細として追加する
      */
-    private static String getAccountName(List<AccountInfo> lstAccountInfo, Integer Id) {
-        String ret = null;
-        for(AccountInfo ai : lstAccountInfo) {
-            if(ai.Id == Id) {
-                ret = ai.Name;
-                break;
+    private static void getManualJournals(Integer companyId, Map<Integer, String> mapAccountInfo, Date startDate, Date endDate, List<Income__c> lstIncome, List<Expense__c> lstExpense) {
+        Http http = new Http();
+        String path = 'callout:Freee/manual_journals';
+        String parameters = 'company_id=' + companyId;
+        parameters += '&start_issue_date=' + startDate.format().replace('/', '-');
+        parameters += '&end_issue_date=' + endDate.format().replace('/', '-');
+        parameters += '&limit=100';
+        HttpRequest req = new HttpRequest();
+        req.setEndpoint(path + '?' + parameters);
+        req.setMethod('GET');
+
+        HttpResponse res = http.send(req);
+
+        if(res.getStatusCode() == 200) {
+            Map<String, Object> mapBody = (Map<String, Object>)JSON.deserializeUntyped(res.getBody());
+            List<Object> lstManualJournal = (List<Object>)mapBody.get('manual_journals');
+            for(Object manualJournal : lstManualJournal) {
+                Map<String, Object> mapManualJournal = (Map<String, Object>)manualJournal;
+                List<Object> lstDetail = (List<Object>)mapManualJournal.get('details');
+                for(Object detail : lstDetail) {
+                    Map<String, Object> mapDetail = (Map<String, Object>)detail;
+
+                    if ((String)mapDetail.get('entry_side') == 'credit') {
+                        // 収入明細データを作成する
+                        Income__c income = new Income__c();
+                        // ID
+                        income.Name += String.valueOf((Integer)mapDetail.get('id'));
+                        // 計上日
+                        income.AccountDate__c = Date.valueOf((String)mapManualJournal.get('issue_date'));
+                        // 発生日
+                        income.IssueDate__c = Date.valueOf((String)mapManualJournal.get('issue_date'));
+                        // 勘定科目
+                        income.AccountItem__c = getAccountName(mapAccountInfo, (Integer)mapDetail.get('account_item_id'));
+                        // 金額
+                        income.Amount__c = (Integer)mapDetail.get('amount');
+                        // 備考
+                        String description = (String)mapDetail.get('description');
+                        if (description == null) {
+                            description = '';
+                        }
+                        income.Description__c = description.replace(',', '、').replace('¥"', '”');
+
+                        lstIncome.add(income);
+                    }
+                    else {
+                        // 経費明細データを作成する
+                        Expense__c expense = new Expense__c();
+                        // ID
+                        expense.Name += String.valueOf((Integer)mapDetail.get('id'));
+                        // 計上日
+                        expense.AccountDate__c = Date.valueOf((String)mapManualJournal.get('issue_date'));
+                        // 発生日
+                        expense.IssueDate__c = Date.valueOf((String)mapManualJournal.get('issue_date'));
+                        // 勘定科目
+                        expense.AccountItem__c = getAccountName(mapAccountInfo, (Integer)mapDetail.get('account_item_id'));
+                        // 金額
+                        expense.Amount__c = (Integer)mapDetail.get('amount');
+                        // 備考
+                        String description = (String)mapDetail.get('description');
+                        if (description == null) {
+                            description = '';
+                        }
+                        expense.Description__c = description.replace(',', '、').replace('¥"', '”');
+
+                        lstExpense.add(expense);
+                    }
+                }
             }
         }
+    }
 
-        return ret;
+    /**
+    * 勘定科目リストから指定IDの勘定科目名を返す
+     */
+    private static String getAccountName(Map<Integer, String> mapAccountInfo, Integer Id) {
+        return mapAccountInfo.get(Id);
     }
 
     /**

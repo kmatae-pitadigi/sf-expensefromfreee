@@ -17,8 +17,10 @@ global class pdExpenseFromFreeeCalloutMock implements HttpCalloutMock {
             String body = '{"deals": [{"issue_date": "2019-10-01","details":[{"id": 1,"account_item_id": 1,"amount": 5250,"description": "備考"}]}]}';
             res.setBody(body);
         }
-        else if(endPoint.indexOf('https://cloud-up.motionboard.jp') != (-1)) {
+        else if(endPoint.indexOf('callout:Freee/manual_journals') != (-1)) {
             res.setStatusCode(200);
+            String body = '{"manual_journals": [{"issue_date": "2019-10-01","details":[{"id": 1,"entry_side": "credit","account_item_id": 1,"amount": 5250,"description": "備考"},{"id": 1,"entry_side": "debit","account_item_id": 1,"amount": 5250,"description": "備考"}]}]}';
+            res.setBody(body);
         }
 
         return res;
