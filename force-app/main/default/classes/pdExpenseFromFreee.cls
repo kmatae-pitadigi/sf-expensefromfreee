@@ -10,34 +10,48 @@ public with sharing class pdExpenseFromFreee {
         // 勘定科目情報を取得する
         List<AccountInfo> lstAccountInfo = getAccountInfo(companyId);
 
-        // 半年分の経費明細を取得する
         Date startDate;
         List<Expense__c> lstExpense = new List<Expense__c>();
+        List<Income__c> lstIncome = new List<Income__c>();
         for(Integer i=0 ; i<months ; i++){
             startDate = Date.today().toStartOfMonth().addMonths(i * (-1));
             Date endDate = startDate.addMonths(1).addDays(-1);
 
             lstExpense.addAll(getExpense(companyId, lstAccountInfo, startDate, endDate));
+            lstIncome.addAll(getIncome(companyId, lstAccountInfo, startDate, endDate));
         }
 
-        // 経費明細データを削除する
-        deleteExpense();
+        // 明細データを削除する
+        deleteExpense(months);
+        deleteIncome(months);
 
-        // 経費情報を登録する
         insert lstExpense;
+        insert lstIncome;
     }
 
      /**
      * 経費明細情報を削除する
-     * 現在日時の3ヶ月分を削除する
     */
-    private static void deleteExpense() {
+    private static void deleteExpense(Integer months) {
         Date today = Date.today();
-        Date startDate = Date.newInstance(today.year(), today.month() - 3, 1);
+        Date startDate = Date.newInstance(today.year(), today.month() - months, 1);
 
         List<Expense__c> lstExpense = [SELECT Id FROM Expense__c WHERE IssueDate__c >= :startDate];
         if (lstExpense.size() != 0) {
             delete lstExpense;
+        }
+    }
+
+     /**
+     * 収入情報を削除する
+    */
+    private static void deleteIncome(Integer months) {
+        Date today = Date.today();
+        Date startDate = Date.newInstance(today.year(), today.month() - months, 1);
+
+        List<Income__c> lstIncome = [SELECT Id FROM Income__c WHERE IssueDate__c >= :startDate];
+        if (lstIncome.size() != 0) {
+            delete lstIncome;
         }
     }
 
@@ -109,11 +123,86 @@ public with sharing class pdExpenseFromFreee {
     * 経費明細を取得する
     */
     private static List<Expense__c> getExpense(Integer companyId, List<AccountInfo> lstAccountInfo, Date startDate, Date endDate) {
-        // 期間を指定して経費明細を取得する
+        List<Expense__c> lstExpense = new List<Expense__c>();
+        List<Object> lstDeals = getDeals('expense', companyId, startDate, endDate);
+        for(Object deal : lstDeals) {
+            Map<String, Object> mapDeal = (Map<String, Object>)deal;
+            List<Object> lstDetail = (List<Object>)mapDeal.get('details');
+            for(Object detail : lstDetail) {
+                Map<String, Object> mapDetail = (Map<String, Object>)detail;
+
+                // 経費明細データを作成する
+                Expense__c expense = new Expense__c();
+                // ID
+                expense.Name += String.valueOf((Integer)mapDetail.get('id'));
+                // 計上日
+                expense.AccountDate__c = Date.valueOf((String)mapDeal.get('issue_date'));
+                // 発生日
+                expense.IssueDate__c = Date.valueOf((String)mapDeal.get('issue_date'));
+                // 勘定科目
+                expense.AccountItem__c = getAccountName(lstAccountInfo, (Integer)mapDetail.get('account_item_id'));
+                // 金額
+                expense.Amount__c = (Integer)mapDetail.get('amount');
+                // 備考
+                String description = (String)mapDetail.get('description');
+                if (description == null) {
+                    description = '';
+                }
+                expense.Description__c = description.replace(',', '、').replace('¥"', '”');
+
+                lstExpense.add(expense);
+            }
+        }
+        
+        return lstExpense;
+    }
+
+    /**
+    * 収入明細を取得する
+    */
+    private static List<Income__c> getIncome(Integer companyId, List<AccountInfo> lstAccountInfo, Date startDate, Date endDate) {
+        List<Income__c> lstIncome = new List<Income__c>();
+        List<Object> lstDeals = getDeals('income', companyId, startDate, endDate);
+        for(Object deal : lstDeals) {
+            Map<String, Object> mapDeal = (Map<String, Object>)deal;
+            List<Object> lstDetail = (List<Object>)mapDeal.get('details');
+            for(Object detail : lstDetail) {
+                Map<String, Object> mapDetail = (Map<String, Object>)detail;
+
+                // 収入明細データを作成する
+                Income__c income = new Income__c();
+                // ID
+                income.Name += String.valueOf((Integer)mapDetail.get('id'));
+                // 計上日
+                income.AccountDate__c = Date.valueOf((String)mapDeal.get('issue_date'));
+                // 発生日
+                income.IssueDate__c = Date.valueOf((String)mapDeal.get('issue_date'));
+                // 勘定科目
+                income.AccountItem__c = getAccountName(lstAccountInfo, (Integer)mapDetail.get('account_item_id'));
+                // 金額
+                income.Amount__c = (Integer)mapDetail.get('amount');
+                // 備考
+                String description = (String)mapDetail.get('description');
+                if (description == null) {
+                    description = '';
+                }
+                income.Description__c = description.replace(',', '、').replace('¥"', '”');
+
+                lstIncome.add(income);
+            }
+        }
+        
+        return lstIncome;
+    }
+
+    /**
+     * 取引情報をfreeeから取得する
+     */
+    private static List<Object> getDeals(String type, Integer companyId, Date startDate, Date endDate) {
         Http http = new Http();
         String path = 'callout:Freee/deals';
         String parameters = 'company_id=' + companyId;
-        parameters += '&type=expense';
+        parameters += '&type=' + type;
         parameters += '&start_issue_date=' + startDate.format().replace('/', '-');
         parameters += '&end_issue_date=' + endDate.format().replace('/', '-');
         parameters += '&limit=100';
@@ -124,46 +213,13 @@ public with sharing class pdExpenseFromFreee {
 
         HttpResponse res = http.send(req);
 
-        // 正常に返って来たら経費データを作成する
-        List<Expense__c> lstExpense = new List<Expense__c>();
+        List<Object> lstDeals = new List<Object>();
         if(res.getStatusCode() == 200) {
-            System.debug(res.getBody());
             Map<String, Object> mapBody = (Map<String, Object>)JSON.deserializeUntyped(res.getBody());
-            List<Object> lstDeals = (List<Object>)mapBody.get('deals');
-            for(Object deal : lstDeals) {
-                Map<String, Object> mapDeal = (Map<String, Object>)deal;
-                List<Object> lstDetail = (List<Object>)mapDeal.get('details');
-                for(Object detail : lstDetail) {
-                    Map<String, Object> mapDetail = (Map<String, Object>)detail;
-
-                    // 経費明細データを作成する
-                    Expense__c expense = new Expense__c();
-                    // ID
-                    expense.Name += String.valueOf((Integer)mapDetail.get('id'));
-                    // 計上日
-                    expense.AccountDate__c = Date.valueOf((String)mapDeal.get('issue_date'));
-                    // 発生日
-                    expense.IssueDate__c = Date.valueOf((String)mapDeal.get('issue_date'));
-                    // 勘定科目
-                    expense.AccountItem__c = getAccountName(lstAccountInfo, (Integer)mapDetail.get('account_item_id'));
-                    // 金額
-                    expense.Amount__c = (Integer)mapDetail.get('amount');
-                    // 備考
-                    String description = (String)mapDetail.get('description');
-                    if (description == null) {
-                        description = '';
-                    }
-                    expense.Description__c = description.replace(',', '、').replace('¥"', '”');
-
-                    lstExpense.add(expense);
-                }
-            }
+            lstDeals = (List<Object>)mapBody.get('deals');
         }
-        else {
-            throw new OtherException(getApiErrorMessage(res.getBody()));
-        }
-        
-        return lstExpense;
+
+        return lstDeals;
     }
 
     /**
