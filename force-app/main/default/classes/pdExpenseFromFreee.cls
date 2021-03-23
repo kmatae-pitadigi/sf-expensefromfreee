@@ -134,7 +134,7 @@ public with sharing class pdExpenseFromFreee {
                 // 経費明細データを作成する
                 Expense__c expense = new Expense__c();
                 // ID
-                expense.Name += String.valueOf((Integer)mapDetail.get('id'));
+                expense.Name += String.valueOf((Long)mapDetail.get('id'));
                 // 計上日
                 expense.AccountDate__c = Date.valueOf((String)mapDeal.get('issue_date'));
                 // 発生日
@@ -142,7 +142,7 @@ public with sharing class pdExpenseFromFreee {
                 // 勘定科目
                 expense.AccountItem__c = getAccountName(mapAccountInfo, (Integer)mapDetail.get('account_item_id'));
                 // 金額
-                expense.Amount__c = (Integer)mapDetail.get('amount');
+                expense.Amount__c = (Long)mapDetail.get('amount');
                 // 備考
                 String description = (String)mapDetail.get('description');
                 if (description == null) {
@@ -172,7 +172,7 @@ public with sharing class pdExpenseFromFreee {
                 // 収入明細データを作成する
                 Income__c income = new Income__c();
                 // ID
-                income.Name += String.valueOf((Integer)mapDetail.get('id'));
+                income.Name += String.valueOf((Long)mapDetail.get('id'));
                 // 計上日
                 income.AccountDate__c = Date.valueOf((String)mapDeal.get('issue_date'));
                 // 発生日
@@ -180,7 +180,7 @@ public with sharing class pdExpenseFromFreee {
                 // 勘定科目
                 income.AccountItem__c = getAccountName(mapAccountInfo, (Integer)mapDetail.get('account_item_id'));
                 // 金額
-                income.Amount__c = (Integer)mapDetail.get('amount');
+                income.Amount__c = (Long)mapDetail.get('amount');
                 // 備考
                 String description = (String)mapDetail.get('description');
                 if (description == null) {
