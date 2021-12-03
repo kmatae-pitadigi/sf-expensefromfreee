@@ -13,9 +13,20 @@ public with sharing class pdExpenseFromFreee {
         Date startDate;
         List<Expense__c> lstExpense = new List<Expense__c>();
         List<Income__c> lstIncome = new List<Income__c>();
+        List<Expense__c> lstExpenseDeleteAll = new List<Expense__c>();
+        List<Income__c> lstIncomeDeleteAll = new List<Income__c>();
         for(Integer i=0 ; i<months ; i++){
             startDate = Date.today().toStartOfMonth().addMonths(i * (-1));
             Date endDate = startDate.addMonths(1).addDays(-1);
+
+            List<Expense__c> lstExpenseDelete = [SELECT Id FROM Expense__c WHERE IssueDate__c >= :startDate AND IssueDate__c <= :endDate];
+            if (lstExpenseDelete.size() != 0) {
+                lstExpenseDeleteAll.addAll(lstExpenseDelete);
+            }
+            List<Income__c> lstIncomeDelete = [SELECT Id FROM Income__c WHERE IssueDate__c >= :startDate AND IssueDate__c <= :endDate];
+            if (lstIncomeDelete.size() != 0) {
+                lstIncomeDeleteAll.addAll(lstIncomeDelete);
+            }
 
             lstExpense.addAll(getExpense(companyId, mapAccountInfo, startDate, endDate));
             lstIncome.addAll(getIncome(companyId, mapAccountInfo, startDate, endDate));
@@ -25,37 +36,11 @@ public with sharing class pdExpenseFromFreee {
         }
 
         // 明細データを削除する
-        deleteExpense(months);
-        deleteIncome(months);
+        delete lstExpenseDeleteAll;
+        delete lstIncomeDeleteAll;
 
         insert lstExpense;
         insert lstIncome;
-    }
-
-     /**
-     * 経費明細情報を削除する
-    */
-    private static void deleteExpense(Integer months) {
-        Date today = Date.today();
-        Date startDate = Date.newInstance(today.year(), today.month() - months, 1);
-
-        List<Expense__c> lstExpense = [SELECT Id FROM Expense__c WHERE IssueDate__c >= :startDate];
-        if (lstExpense.size() != 0) {
-            delete lstExpense;
-        }
-    }
-
-     /**
-     * 収入情報を削除する
-    */
-    private static void deleteIncome(Integer months) {
-        Date today = Date.today();
-        Date startDate = Date.newInstance(today.year(), today.month() - months, 1);
-
-        List<Income__c> lstIncome = [SELECT Id FROM Income__c WHERE IssueDate__c >= :startDate];
-        if (lstIncome.size() != 0) {
-            delete lstIncome;
-        }
     }
 
     /**
